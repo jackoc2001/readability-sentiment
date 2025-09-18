@@ -1,0 +1,265 @@
+# ============================================================================ #
+# Web of Science Citation Collector                                            #
+# ============================================================================ #
+
+library(httr)
+library(jsonlite)
+library(dplyr)
+library(stringr)
+library(readr)
+
+# Set your API key here
+# Sys.setenv(YOUR_API_KEY_NAME = "your_actual_api_key_here")
+
+# Test Web of Science connection
+test_wos_connection <- function(api_key_name = "YOUR_API_KEY_NAME") {
+  api_key <- Sys.getenv(api_key_name)
+  
+  if(api_key == "") {
+    return(FALSE)
+  }
+  
+  # Test connection
+  response <- GET(
+    "https://api.clarivate.com/api/wos",
+    add_headers("X-ApiKey" = api_key),
+    timeout(10)
+  )
+  
+  if(status_code(response) == 200) {
+    return(TRUE)
+  } else {
+    return(FALSE)
+  }
+}
+
+# MAIN FUNCTION - COLLECT CITATIONS FROM WEB OF SCIENCE
+collect_citations_wos <- function(input_filepath, 
+                                  title_column = "title",
+                                  doi_column = "doi", 
+                                  authors_column = "authors",
+                                  year_column = "year_of_publication",
+                                  api_key_name = "YOUR_API_KEY_NAME") {
+  
+  # Check API connection
+  if(!test_wos_connection(api_key_name)) {
+    stop("Cannot proceed without Web of Science API access")
+  }
+  
+  api_key <- Sys.getenv(api_key_name)
+  
+  # Load dataset
+  input_data <- read_csv(input_filepath)
+  
+  # Prepare data for citation collection
+  data_prepared <- input_data %>%
+    mutate(
+      article_id = row_number(),
+      doi_clean = case_when(
+        !is.na(.data[[doi_column]]) & .data[[doi_column]] != "" ~ str_remove_all(.data[[doi_column]], "https://doi.org/"),
+        TRUE ~ ""
+      ),
+      search_title = str_remove_all(.data[[title_column]], '["\']'),
+      first_author = case_when(
+        !is.na(.data[[authors_column]]) & .data[[authors_column]] != "" ~ 
+          str_trim(str_split(.data[[authors_column]], ";")[[1]][1]),
+        TRUE ~ ""
+      )
+    )
+  
+  # Collect citations
+  wos_results <- collect_wos_citations(data_prepared, api_key, year_column)
+  
+  # Merge with original dataset
+  final_data <- data_prepared %>%
+    left_join(wos_results, by = "article_id") %>%
+    mutate(
+      citations = ifelse(is.na(wos_citations), 0, wos_citations),
+      citation_source = ifelse(is.na(wos_citations), "None", "Web of Science"),
+      has_citations = citations > 0
+    )
+  
+  # Save results
+  timestamp <- format(Sys.time(), "%Y%m%d_%H%M")
+  output_file <- paste0("dataset_with_citations_", timestamp, ".csv")
+  write_csv(final_data, output_file)
+  
+  return(final_data)
+}
+
+# Collect citations for all articles
+collect_wos_citations <- function(data, api_key, year_column) {
+  
+  wos_results <- tibble(
+    article_id = integer(),
+    wos_citations = integer(),
+    wos_id = character(),
+    search_method = character()
+  )
+  
+  for(i in 1:nrow(data)) {
+    
+    current_article <- data[i, ]
+    
+    # Get citations for this article
+    wos_result <- get_wos_citation_single(
+      api_key = api_key,
+      article_id = current_article$article_id,
+      title = current_article$search_title,
+      doi = current_article$doi_clean,
+      first_author = current_article$first_author,
+      year = current_article[[year_column]]
+    )
+    
+    if(!is.null(wos_result)) {
+      wos_results <- bind_rows(wos_results, wos_result)
+    }
+    
+    # Rate limiting
+    Sys.sleep(1.5)
+    
+    if(i %% 50 == 0) {
+      Sys.sleep(15)
+    }
+  }
+  
+  return(wos_results)
+}
+
+# Get citation for single articles
+get_wos_citation_single <- function(api_key, article_id, title, doi = "", first_author = "", year = "") {
+  
+  tryCatch({
+    
+    # Build search query
+    search_parts <- character()
+    search_method <- ""
+    
+    # Method 1: Use DOI (most reliable)
+    if(!is.na(doi) && doi != "") {
+      search_parts <- c(search_parts, paste0('DO="', doi, '"'))
+      search_method <- "doi"
+    } else {
+      # Method 2: Use title + author + year
+      if(!is.na(title) && title != "") {
+        search_parts <- c(search_parts, paste0('TI="', title, '"'))
+        search_method <- "title"
+        
+        # Add author if available
+        if(!is.na(first_author) && first_author != "" && nchar(first_author) > 2) {
+          author_parts <- str_split(first_author, "\\s+")[[1]]
+          if(length(author_parts) >= 2) {
+            last_name <- author_parts[length(author_parts)]
+            search_parts <- c(search_parts, paste0('AU="', last_name, '"'))
+            search_method <- "title_author"
+          }
+        }
+        
+        # Add year if available
+        if(!is.na(year) && year != "" && year > 1900) {
+          search_parts <- c(search_parts, paste0('PY=', year))
+          search_method <- paste0(search_method, "_year")
+        }
+      }
+    }
+    
+    if(length(search_parts) == 0) return(NULL)
+    
+    search_query <- paste(search_parts, collapse = " AND ")
+    
+    # Query Web of Science API
+    response <- GET(
+      "https://api.clarivate.com/api/wos",
+      query = list(
+        databaseId = "WOS",
+        usrQuery = search_query,
+        count = 1,
+        firstRecord = 1
+      ),
+      add_headers("X-ApiKey" = api_key),
+      timeout(30)
+    )
+    
+    if(status_code(response) == 200) {
+      data <- fromJSON(content(response, "text"))
+      
+      # Check whether results were
+      if(!is.null(data$Data) && !is.null(data$Data$Records$records$REC)) {
+        record <- data$Data$Records$records$REC
+        
+        # Handle different record formats
+        if(is.data.frame(record)) {
+          record <- record[1, ]
+        } else if(is.list(record)) {
+          record <- record[[1]]
+        }
+        
+        # Extract citation count and ID
+        citations <- 0
+        wos_id <- ""
+        
+        if(!is.null(record$UID)) {
+          wos_id <- record$UID
+        }
+        
+        # Get citation counts
+        if(!is.null(record$dynamic_data$citation_related$tc_list$silo_tc)) {
+          tc_data <- record$dynamic_data$citation_related$tc_list$silo_tc
+          
+          if(is.data.frame(tc_data)) {
+            wos_core_citations <- tc_data[tc_data$coll_id == "WOS", ]
+            if(nrow(wos_core_citations) > 0) {
+              citations <- as.integer(wos_core_citations$local_count[1])
+            }
+          }
+        }
+        
+        return(tibble(
+          article_id = article_id,
+          wos_citations = citations,
+          wos_id = wos_id,
+          search_method = search_method
+        ))
+      }
+    } else if(status_code(response) == 429) {
+      Sys.sleep(30)
+    }
+    
+    return(NULL)
+    
+  }, error = function(e) {
+    return(NULL)
+  })
+}
+
+# ============================================================================ #
+# HOW TO USE THIS CODE                                                         #
+# ============================================================================ #
+
+# STEP 1: Set Web of Science API key
+# Sys.setenv(YOUR_API_KEY_NAME = "your_actual_api_key_here")
+
+# STEP 2: Run the collection (adjust parameters as needed)
+# results <- collect_citations_wos(
+#   input_filepath = "your_dataset.csv",
+#   title_column = "title",           # Name of title column in your CSV
+#   doi_column = "doi",               # Name of DOI column
+#   authors_column = "authors",       # Name of authors column  
+#   year_column = "year_of_publication", # Name of year column
+#   api_key_name = "YOUR_API_KEY_NAME"   # Name of your API key variable
+# )
+
+# STEP 3: View results
+# View(results)
+
+# STEP 4: Basic analysis
+# summary_stats <- results %>%
+#   summarise(
+#     total_articles = n(),
+#     articles_with_citations = sum(has_citations),
+#     coverage_rate = round(mean(has_citations) * 100, 1),
+#     avg_citations = round(mean(citations), 1),
+#     median_citations = median(citations)
+#   )
+# 
+# print(summary_stats)
