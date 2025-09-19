@@ -1,1 +1,41 @@
+#===============================================================================
+# READABILILTY, SENTIMENT VS. CITATIONS 
+#===============================================================================
+# Load required library
+library(gridExtra)
+library(ggplot2)
+
+# Create individual plots
+p1 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = flesch, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs Flesch Score", x = "Flesch Score", y = "Citations") +
+  theme_minimal()
+
+p2 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = flesch_kincaid, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs Flesch-Kincaid", x = "Flesch-Kincaid Score", y = "Citations") +
+  theme_minimal()
+
+p3 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = dale_chall, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs Dale-Chall", x = "Dale-Chall Score", y = "Citations") +
+  theme_minimal()
+
+p4 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = pos_sentiment, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs Positive Sentiment", x = "Positive Sentiment", y = "Citations") +
+  theme_minimal()
+
+p5 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = is_tentative, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs Tentative Language", x = "Is Tentative", y = "Citations") +
+  theme_minimal()
+
+p6 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = is_certain, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs Certain Language", x = "Is Certain", y = "Citations") +
+  theme_minimal()
+
+# Arrange all plots in a grid (3x2 layout)
+grid.arrange(p1, p2, p3, p4, p5, p6, ncol = 2, nrow = 3)
 
