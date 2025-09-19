@@ -1,1 +1,6 @@
-
+library(readxl)
+library(tidyverse)        
+library(stargazer)
+library(modelsummary)
+library(marginaleffects)
+datasummary_skim(causal_claims_with_citations, output = "default", histogram=T)
