@@ -39,3 +39,58 @@ p6 <- ggplot(data = causal_claims_with_citations) +
 # Arrange all plots in a grid (3x2 layout)
 grid.arrange(p1, p2, p3, p4, p5, p6, ncol = 2, nrow = 3)
 
+
+
+#===============================================================================
+# PAPER-METHODS VS. CITATIONS GRID ARRANGEMENT
+#===============================================================================
+
+# Create individual plots for each paper method
+p1 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = paper_method_RDD, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs RDD Method", x = "RDD Method", y = "Citations") +
+  theme_minimal()
+
+p2 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = paper_method_DID, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs DID Method", x = "DID Method", y = "Citations") +
+  theme_minimal()
+
+p3 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = paper_method_RCT, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs RCT Method", x = "RCT Method", y = "Citations") +
+  theme_minimal()
+
+p4 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = paper_method_IV, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs IV Method", x = "IV Method", y = "Citations") +
+  theme_minimal()
+
+p5 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = paper_method_Structural, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs Structural Method", x = "Structural Method", y = "Citations") +
+  theme_minimal()
+
+p6 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = paper_method_TWFE, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs TWFE Method", x = "TWFE Method", y = "Citations") +
+  theme_minimal()
+
+p7 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = paper_method_Event, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs Event Study", x = "Event Study Method", y = "Citations") +
+  theme_minimal()
+
+p8 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = paper_method_Simulations, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs Simulations", x = "Simulations Method", y = "Citations") +
+  theme_minimal()
+
+p9 <- ggplot(data = causal_claims_with_citations) + 
+  geom_point(mapping = aes(x = paper_method_Theoretical, y = citations, color = authors_institutions)) +
+  labs(title = "Citations vs Theoretical", x = "Theoretical Method", y = "Citations") +
+  theme_minimal()
+
+# Arrange all plots in a 3x3 grid
+grid.arrange(p1, p2, p3, p4, p5, p6, p7, p8, p9, ncol = 3, nrow = 3)
+
