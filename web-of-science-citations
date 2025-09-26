@@ -263,3 +263,47 @@ get_wos_citation_single <- function(api_key, article_id, title, doi = "", first_
 #   )
 # 
 # print(summary_stats)
+
+
+#===============================================================================
+# asinh transform citations
+#===============================================================================
+#Key Reasons for asinh Transformation:
+#Handles zero values: Unlike log transformation, asinh can accommodate papers with zero citations, which is crucial since many papers (especially recent ones) may not have been cited yet.
+#Addresses extreme skewness: Citation distributions are highly right-skewed, with most papers receiving few citations and a small number receiving very many. The asinh transformation helps normalize this distribution.
+#Reduces influence of outliers: Some papers receive hundreds or thousands of citations while others receive none. The transformation compresses the extreme right tail, preventing highly-cited papers from dominating the regression results.
+#Maintains interpretability: The asinh function preserves the relative ordering of citation counts while making the distribution more suitable for linear regression analysis.
+#Approximates log for large values: For large citation counts, asinh behaves similarly to natural log, providing the variance-stabilizing benefits of log transformation while handling zeros.
+
+#Why This Matters for the Study:
+#The authors are examining how various factors (female authorship, review duration, journal characteristics) affect subsequent citation impact. Without the transformation, the extreme skewness of citation data would:
+  
+#Violate regression assumptions
+#Give disproportionate weight to highly-cited outliers
+#Make coefficient estimates unreliable
+#Reduce the power to detect meaningful relationships
+
+#The asinh transformation is now standard practice in bibliometric research for these reasons, allowing for more robust statistical inference about factors affecting citation outcomes.
+
+# Use linear regression with asinh transformed citations instead of negative binomial or poisson since asinh transformation accounts for excess zero and extreme right skew, while supporting clustering at the author level and weighting each paper by the inverse of the number of authors. 
+# Why transformation is still needed: Linear regression assumes normally distributed residuals, Even with just Flesch as a predictor, untransformed citations would likely violate this assumption, The skewness is inherent to citation data, not dependent on your specific predictors
+
+# What it does to your citation data:
+# For small values (including 0): Acts approximately like the identity function (barely changes the value), asinh(0) = 0, asinh(1) ≈ 0.88
+# For large values: Acts approximately like ln(2x), compressing the right tail, asinh(100) ≈ 5.3 vs ln(100) ≈ 4.6
+# Overall effect:
+#  Reduces right skewness by compressing large citation counts
+# Leaves small citation counts relatively unchanged
+# Handles zeros without issues (unlike log transformation)
+# Creates a more symmetric distribution suitable for linear regression
+#Net result: Your highly skewed citation variable (0, 1, 2, 5, 50, 200...) becomes a more normally distributed variable (0, 0.88, 1.44, 2.31, 4.6, 5.3...) that plays nicer with OLS assumptions.
+
+# Why: An Ordinary Least Squares (OLS) model with an asinh (inverse hyperbolic sine) transformed dependent variable is used when the dependent variable is non-negative and skewed, and when the natural logarithm transformation is not appropriate due to the presence of zero or negative values.
+# citations should not be logged as takes on a lot of zeros, For variables that take on zero or negative values, Log(n≤0) does not exist, so those observations will be dropped,
+
+
+# Mathematically, the transformation is asinh(x) = ln(x + √(x² + 1))
+read_sent_wos_cont_dev$wos_citations_asinh <- asinh(read_sent_wos_cont_dev$wos_citations)
+hist(read_sent_wos_cont_dev$wos_citations)
+hist(read_sent_wos_cont_dev$wos_citations_asinh)
+
