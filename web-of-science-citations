@@ -303,7 +303,7 @@ get_wos_citation_single <- function(api_key, article_id, title, doi = "", first_
 
 
 # Mathematically, the transformation is asinh(x) = ln(x + √(x² + 1))
-read_sent_wos_cont_dev$wos_citations_asinh <- asinh(read_sent_wos_cont_dev$wos_citations)
-hist(read_sent_wos_cont_dev$wos_citations)
-hist(read_sent_wos_cont_dev$wos_citations_asinh)
+causal_claims_with_citations$citations_asinh <- asinh(causal_claims_with_citations$citations)
+hist(causal_claims_with_citations$citations_asinh)
+hist(causal_claims_with_citations$citations_asinh)
 
