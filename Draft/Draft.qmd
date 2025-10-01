@@ -1,0 +1,81 @@
+---
+title: "Better Writing Leads to More Citations in Economics"
+format:
+  jasa-pdf:
+    keep-tex: true  
+    journal:
+      blinded: false
+  jasa-html: default
+date: last-modified
+author:
+  - name: Benjamin Elsner
+    acknowledgements: | 
+    Corresponding author: Benjamin Elsner, Department of Economics, University College Dublin, Belfield, Dublin 4, Ireland. 
+    affiliations:
+      - name: University College Dublin and IZA
+  - name: Jack O'Connell
+    affiliations:
+      - name: University College Dublin and Central Statistics Office
+abstract: |
+  Lorem ipsum dolor sit amet, consectetur adipiscing elit. Aenean auctor nisi vitae libero tempus, ut laoreet enim tincidunt. Cras efficitur magna turpis, nec rutrum massa posuere vel. Sed tincidunt enim non turpis tempor, non ultrices lacus pellentesque. Class aptent taciti sociosqu ad litora torquent per conubia nostra, per inceptos himenaeos. Morbi sit amet mollis justo. Donec efficitur elementum justo sed tristique. Suspendisse massa ante, vulputate quis tincidunt non, sollicitudin vitae purus. Praesent id turpis vitae lorem fringilla ultrices. Duis non arcu lacinia velit semper vestibulum vitae in odio. Mauris ornare arcu vitae tortor efficitur congue. Praesent commodo diam arcu, id auctor magna venenatis et. Vestibulum at euismod lorem. Sed id ornare elit, eu maximus lacus. Proin efficitur vitae mauris eu molestie. Etiam id ligula quam. Phasellus vitae posuere tellus. Sed facilisis eros quis fringilla maximus. Mauris vel orci sed neque cursus fringilla iaculis sed nulla. Proin ornare mollis odio, at.
+keywords:
+  - Citations
+  - Sentiment
+  - Readability
+bibliography: bibliography.bib  
+---
+
+## Introduction {#sec-intro}
+
+
+Standard introduction formula: 
+
+- Hook
+- Importance of the topic
+- What question we answer in this paper and why this question is important
+- What we do? Data, identification strategy
+- What we find? Main results
+- 2-3 paragraphs. Contribution to the literature; no lit review anywhere else.
+
+
+## Theoretical Considerations
+
+Why are readability and citations linked?
+
+
+## Data {#sec-data}
+
+Describe here the data sources (what it contains, how it was collected) and sample construction. 
+
+### Data on paper abstracts
+
+We use data from @hengel2022.
+
+### Data on readability
+
+
+
+
+## Empirical Strategy {#sec-meth}
+
+To study the association between readability and citations, we estimate the following regression model:
+
+
+## Results {#sec-res}
+
+
+
+
+
+## Robustness checks
+
+
+## Conclusion {#sec-conc}
+
+
+
+
+## Appendix {.supplementary}
+
+
+
