@@ -1,0 +1,1 @@
+datasummary_skim(causal_claims_with_citations, output = "default", histogram=T)
