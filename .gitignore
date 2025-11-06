@@ -47,3 +47,9 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# Data files
+Data/*
+!Data/.gitkeep
+!Data/README.md
+
