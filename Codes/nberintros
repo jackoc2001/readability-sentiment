@@ -1,0 +1,891 @@
+#===============================================================================
+# t-test on the difference of means of stylisitc charactersitics of abstracts and the first paragraph of an articles introduciont: load dataset (1)
+#===============================================================================
+introduction_lines <- readLines("~/Desktop/Thesis/abstracts:full_texts/introduction_text.txt")
+nber_abstracts_intros <- read_csv("~/Desktop/Thesis/abstracts:full_texts/nber_abstracts_intros")
+
+# Split each line on the first "|" to separate NberID from abstract
+split_data <- strsplit(introduction_lines, "\\|", fixed = FALSE)
+# Extract NberID and Nber_Abstract
+introduction_clean <- data.frame(
+  NberID = sapply(split_data, function(x) {
+    if(length(x) >= 1) x[1] else NA
+  }),
+  Nber_Intro = sapply(split_data, function(x) {
+    if(length(x) > 1) {
+      # Join everything after the first "|" back together
+      paste(x[-1], collapse = "|")
+    } else {
+      NA
+    }
+  }),
+  stringsAsFactors = FALSE
+)
+
+# Clean up any leading/trailing whitespace
+introduction_clean$NberID <- trimws(introduction_clean$NberID)
+introduction_clean$Nber_Intro <- trimws(introduction_clean$Nber_Intro)
+# Remove any completely empty rows
+introduction_clean <- introduction_clean[!is.na(introduction_clean$NberID) & 
+                                           introduction_clean$NberID != "", ]
+# Merge introduction_clean with progress_data
+# This keeps all columns from both datasets
+merged_data <- progress_data %>%
+  left_join(introduction_clean, by = "NberID")
+
+new_cols <- setdiff(names(merged_data), names(progress_data))
+print(new_cols)
+# Filter for rows where Nber_Intro has data (not NA and not empty)
+filtered_data <- merged_data %>%
+  filter(!is.na(Nber_Intro) & Nber_Intro != "")
+
+
+#===============================================================================
+# t-test on the difference of means of stylisitc charactersitics of abstracts and the first paragraph of an articles introduciont: create abstract and intro variables 
+#===============================================================================
+#***add a word_count variable counting the word count of the abstract
+# Nber_Abstract, Nber_Intro
+
+# 1. Calculate text stats for Nber_Abstract, 
+corp <- corpus(nber_abstracts_intros$Nber_Abstract)
+docvars(corp) <- nber_abstracts_intros[, !names(nber_abstracts_intros) %in% "Nber_Abstract"]
+toks_clean <- tokens(corp, 
+                     remove_punct = TRUE, 
+                     remove_numbers = TRUE, 
+                     remove_symbols = TRUE) %>%
+  tokens_tolower() %>%
+  tokens_remove(stopwords("english"))
+
+
+nber_abstracts_intros$n_sentences_abs <- nsentence(corp)
+nber_abstracts_intros$n_tokens_abs <- ntoken(corp)
+nber_abstracts_intros$n_characters_abs <- nchar(nber_abstracts_intros$Nber_Abstract)
+nber_abstracts_intros$n_types_abs <- sapply(nber_abstracts_intros$Nber_Abstract, function(x) {
+  if (is.na(x) || x == "") return(0)
+  words <- unlist(strsplit(tolower(x), "\\s+"))
+  words <- gsub("[^a-z]", "", words)  # Remove punctuation
+  words <- words[words != ""]  # Remove empty strings
+  length(unique(words))
+})
+
+word_lengths <- textstat_summary(corp)
+nber_abstracts_intros$avg_word_length_abs <- word_lengths$chars / word_lengths$tokens
+
+dfm_obj <- dfm(toks_clean)
+feat_lengths <- nchar(featnames(dfm_obj))
+long_words <- featnames(dfm_obj)[feat_lengths > 6]
+long_word_counts <- dfm_select(dfm_obj, pattern = long_words) %>% rowSums()
+nber_abstracts_intros$prop_long_words_abs <- long_word_counts / nber_abstracts_intros$n_tokens_abs
+
+estimate_syllables <- function(text) {
+  # Handle missing or empty text
+  if (is.na(text) || text == "") {
+    return(0)
+  }
+  
+  # Simple syllable estimation based on vowel groups
+  words <- unlist(strsplit(tolower(text), "\\s+"))
+  
+  # Remove empty strings from words
+  words <- words[words != ""]
+  
+  if (length(words) == 0) {
+    return(0)
+  }
+  
+  syl_count <- sapply(words, function(word) {
+    # Remove punctuation and count vowel groups
+    word <- gsub("[^a-z]", "", word)
+    
+    # Handle empty words after cleaning
+    if (nchar(word) == 0) {
+      0
+    } else {
+      vowels <- gregexpr("[aeiouy]+", word)[[1]]
+      
+      if (length(vowels) == 1 && vowels[1] == -1) {
+        1  # No vowels found, assume 1 syllable
+      } else {
+        syl <- length(vowels)
+        # Adjust for silent e
+        if (grepl("e$", word)) syl <- syl - 1
+        max(1, syl)
+      }
+    }
+  })
+  
+  return(sum(syl_count, na.rm = TRUE))
+}
+
+# Now apply it
+nber_abstracts_intros$n_syllables_abs <- sapply(nber_abstracts_intros$Nber_Abstract, estimate_syllables)
+nber_abstracts_intros$avg_syllables_per_word_abs <- nber_abstracts_intros$n_syllables / nber_abstracts_intros$n_tokens
+
+# Calculate TTR (Type-Token Ratio)
+nber_abstracts_intros$ttr_abs <- ifelse(nber_abstracts_intros$n_tokens > 0, 
+                            nber_abstracts_intros$n_types / nber_abstracts_intros$n_tokens, 
+                            0)
+
+nber_abstracts_intros$flesch_nber_abstract <- textstat_readability(corp, measure = "Flesch")$Flesch
+nber_abstracts_intros$flesch_kincaid_nber_abstract <- textstat_readability(corp, measure = "Flesch.Kincaid")$Flesch.Kincaid
+nber_abstracts_intros$fog_nber_abstract <- textstat_readability(corp, measure = "FOG")$FOG
+nber_abstracts_intros$smog_nber_abstract <- textstat_readability(corp, measure = "SMOG")$SMOG
+nber_abstracts_intros$dale_chall_nber_abstract <- textstat_readability(corp, measure = "Dale.Chall")$Dale.Chall
+nber_abstracts_intros$meanSentenceLength_nber_abstract <- textstat_readability(corp, measure = "meanSentenceLength")$meanSentenceLength
+nber_abstracts_intros$meanWordSyllables_nber_abstract <- textstat_readability(corp, measure = "meanWordSyllables")$meanWordSyllables
+nber_abstracts_intros$ari_nber_abstract <- textstat_readability(corp, measure = "ARI")$ARI
+nber_abstracts_intros$coleman_liau_nber_abstract <- textstat_readability(corp, measure = "Coleman.Liau")$Coleman.Liau
+
+# Tokenize and clean the text (remove stopwords, punctuation, numbers)
+data(DictionaryGI)
+# Extract positive and negative words from DictionaryGI
+# Handle different possible structures of the dictionary
+if (is.data.frame(DictionaryGI)) {
+  if ("word" %in% names(DictionaryGI) && "positive" %in% names(DictionaryGI)) {
+    positive_words <- DictionaryGI[DictionaryGI$positive != 0, "word"]
+    negative_words <- DictionaryGI[DictionaryGI$negative != 0, "word"]
+  } else if (any(grepl("pos", names(DictionaryGI), ignore.case = TRUE))) {
+    pos_col <- names(DictionaryGI)[grepl("pos", names(DictionaryGI), ignore.case = TRUE)][1]
+    neg_col <- names(DictionaryGI)[grepl("neg", names(DictionaryGI), ignore.case = TRUE)][1]
+    word_col <- names(DictionaryGI)[1]
+    
+    positive_words <- DictionaryGI[DictionaryGI[[pos_col]] != 0, word_col]
+    negative_words <- DictionaryGI[DictionaryGI[[neg_col]] != 0, word_col]
+  }
+} else if (is.list(DictionaryGI)) {
+  positive_words <- DictionaryGI$positive
+  negative_words <- DictionaryGI$negative
+} else {
+  # Fallback: use SentimentAnalysis built-in dictionaries
+  print("Using SentimentAnalysis built-in dictionaries...")
+  dict_gi <- loadDictionaryGI()
+  positive_words <- dict_gi$positive
+  negative_words <- dict_gi$negative
+}
+
+# Remove any NA values
+positive_words <- positive_words[!is.na(positive_words)]
+negative_words <- negative_words[!is.na(negative_words)]
+
+# Create the Harvard IV dictionary for quanteda
+harvard_iv_dict <- dictionary(list(
+  positive = positive_words,
+  negative = negative_words
+))
+
+# Apply Harvard IV dictionary
+harvard_scores <- dfm(tokens_lookup(toks_clean, dictionary = harvard_iv_dict))
+
+# Extract Harvard IV positive/negative counts
+nber_abstracts_intros$pos_words_abs <- as.numeric(harvard_scores[, "positive"])
+nber_abstracts_intros$neg_words_abs <- as.numeric(harvard_scores[, "negative"])
+
+# Calculate Harvard IV sentiment ratio
+nber_abstracts_intros$pos_sentiment_abs <- ifelse(
+  (nber_abstracts_intros$pos_words_abs + nber_abstracts_intros$neg_words_abs) > 0,
+  (nber_abstracts_intros$pos_words_abs - nber_abstracts_intros$neg_words_abs) / 
+    (nber_abstracts_intros$pos_words_abs + nber_abstracts_intros$neg_words_abs),
+  0
+)
+
+# CERTAINTY/TENTATIVENESS SCORE (Based on LIWC)
+# Create expanded certainty/tentativeness dictionary based on LIWC categories
+certainty_dict <- dictionary(list(
+  certainty = c(
+    # High certainty words
+    "always", "clearly", "correct", "definitely", "every time", "invariably", 
+    "irrefutably", "truly", "undeniably", "wholly",
+    "absolute", "absolutely", "actual", "actually", "all", "certain", "certainly",
+    "complete", "completely", "confidence", "confident", "confirm", "confirmed",
+    "decisive", "exact", "exactly", "fact", "final", "forever", "guaranteed",
+    "indeed", "must", "never", "obvious", "obviously", "perfect", "perfectly",
+    "positive", "positively", "precise", "precisely", "proof", "prove", "proven",
+    "real", "really", "sure", "surely", "total", "totally", "true", "truth",
+    "ultimate", "undoubtedly", "unquestionable", "without doubt", "entirely",
+    "complete", "full", "whole", "exact", "pure", "clear", "evident", "plain"
+  ),
+  tentativeness = c(
+    # Tentative/uncertain words
+    "almost", "depending", "doubtfully", "generally", "might", "sometimes",
+    "sort of", "suppose", "unclear", "vaguely",
+    "about", "appear", "appears", "approximately", "around", "assume", "assumes",
+    "believe", "believes", "could", "doubt", "estimate", "fairly", "feel", "feels",
+    "guess", "hesitate", "hope", "hopes", "hypothesize", "if", "imagine", "implies",
+    "indicate", "indicates", "kind of", "likely", "look", "looks", "may", "maybe",
+    "opinion", "perhaps", "possible", "possibly", "potential", "potentially",
+    "probably", "quite", "rather", "relatively", "seem", "seems", "somewhat",
+    "suggest", "suggests", "tend", "tends", "think", "thinks", "uncertainty",
+    "unclear", "unsure", "whether", "wonder", "wonders", "approximately", 
+    "basically", "essentially", "generally", "largely", "mainly", "mostly",
+    "nearly", "partially", "partly", "presumably", "roughly", "typically",
+    "usually", "virtually", "arguably", "conceivably", "presumably", "supposedly"
+  )
+))
+
+# Apply certainty dictionary
+certainty_scores <- dfm(tokens_lookup(toks_clean, dictionary = certainty_dict))
+
+# Extract certainty/tentativeness counts
+nber_abstracts_intros$certainty_words_abs <- as.numeric(certainty_scores[, "certainty"])
+nber_abstracts_intros$tentative_words_abs <- as.numeric(certainty_scores[, "tentativeness"])
+
+# Calculate certainty/tentativeness sentiment ratio
+nber_abstracts_intros$cert_sentiment_abs <- ifelse(
+  (nber_abstracts_intros$certainty_words_abs + nber_abstracts_intros$tentative_words_abs) > 0,
+  (nber_abstracts_intros$certainty_words_abs - nber_abstracts_intros$tentative_words_abs) / 
+    (nber_abstracts_intros$certainty_words_abs + nber_abstracts_intros$tentative_words_abs),
+  0
+)
+
+
+# CONTEMPORARY/PAST SCORE (Based on verb tenses)
+# Create expanded certainty/tentativeness dictionary based on LIWC categories
+temporal_dict <- dictionary(list(
+  contemporary = c(
+    # Present tense verbs
+    "admit", "admits", "arrive", "arrives", "follow", "follows", "happen", "happens",
+    "manage", "manages", "know", "knows", "rank", "ranks", "see", "sees", 
+    "trust", "trusts", "want", "wants",
+    # Future tense indicators
+    "will", "shall", "going to", "gonna", "intend", "intends", "plan", "plans",
+    "expect", "expects", "anticipate", "anticipates", "predict", "predicts",
+    # Present tense academic verbs
+    "analyze", "analyzes", "argue", "argues", "claim", "claims", "conclude", "concludes",
+    "consider", "considers", "demonstrate", "demonstrates", "develop", "develops",
+    "discuss", "discusses", "examine", "examines", "explain", "explains",
+    "explore", "explores", "find", "finds", "focus", "focuses", "identify", "identifies",
+    "illustrate", "illustrates", "investigate", "investigates", "propose", "proposes",
+    "provide", "provides", "reveal", "reveals", "show", "shows", "study", "studies",
+    "suggest", "suggests", "test", "tests", "use", "uses",
+    # Present continuous indicators
+    "am", "is", "are", "being", "doing", "making", "taking", "getting", "becoming",
+    # Modal verbs (present orientation)
+    "can", "may", "must", "should", "would", "could", "might"
+  ),
+  past = c(
+    # Past tense verbs
+    "admitted", "arrived", "followed", "happened", "managed", "knew", "ranked", 
+    "saw", "trusted", "wanted",
+    # Past tense auxiliaries
+    "was", "were", "had", "did", "been", "done", "made", "took", "came", "went", "said",
+    # Past tense academic verbs
+    "analyzed", "argued", "claimed", "concluded", "considered", "demonstrated", "developed",
+    "discussed", "examined", "explained", "explored", "found", "focused", "identified",
+    "illustrated", "investigated", "proposed", "provided", "revealed", "showed", "studied",
+    "suggested", "tested", "used",
+    # Past participles commonly used
+    "based", "compared", "conducted", "considered", "designed", "determined",
+    "estimated", "evaluated", "included", "measured", "observed", "obtained",
+    "performed", "presented", "published", "reported", "selected", "tested",
+    # Additional past tense forms
+    "became", "began", "brought", "built", "called", "carried", "caused", "changed",
+    "created", "established", "gave", "increased", "led", "left", "moved", "placed",
+    "played", "put", "ran", "served", "set", "started", "turned", "worked"
+  )
+))
+
+# Apply certainty dictionary
+temporal_scores <- dfm(tokens_lookup(toks_clean, dictionary = temporal_dict))
+
+# Extract certainty/tentativeness counts
+nber_abstracts_intros$contemporary_words_abs <- as.numeric(temporal_scores[, "contemporary"])
+nber_abstracts_intros$past_words_abs <- as.numeric(temporal_scores[, "past"])
+
+# Calculate certainty/tentativeness sentiment ratio
+nber_abstracts_intros$temp_sentiment_abs <- ifelse(
+  (nber_abstracts_intros$contemporary_words_abs + nber_abstracts_intros$past_words_abs) > 0,
+  (nber_abstracts_intros$contemporary_words_abs - nber_abstracts_intros$past_words_abs) / 
+    (nber_abstracts_intros$contemporary_words_abs + nber_abstracts_intros$past_words_abs),
+  0
+)
+
+
+active_words <- c(
+  "abide", "abolish", "abscond", "absolve", "abuse", "accede", "accelerate", 
+  "accentuate", "accommodate", "accompany", "accomplish", "accost", "account", 
+  "accrue", "accumulate", "achieve", "acquire", "act", "action", "active", 
+  "activity", "actor", "adapt", "address", "administer", "admittance", 
+  "admonish", "admonition", "adopt", "adore", "adorn", "advance", "adventure", 
+  "adventuresome", "adventurous", "advocate", "affair", "affect", "affiliate", 
+  "affix", "afflict", "aggravate", "aggravation", "aggression", "aggressive", 
+  "aggressiveness", "aggrieve", "agitate", "agitation", "aid", "aim", "alarm", 
+  "alert", "alive", "alleviate", "alter", "alternate", "ambitious", "ambush", 
+  "ameliorate", "amend", "amplify", "amputate", "amuse", "analysis", "analytic", 
+  "analytical", "analyze", "anger", "angry", "animation", "annihilate", "annoy", 
+  "anoint", "answer", "antagonism", "antagonistic", "antagonize", "admit", 
+  "arrive", "follow", "happen", "manage", "know", "rank", "see", "trust", "want",
+  "analyze", "argue", "claim", "conclude", "consider", "demonstrate", "develop",
+  "discuss", "examine", "explain", "explore", "find", "focus", "identify",
+  "illustrate", "investigate", "propose", "provide", "reveal", "show", "study",
+  "suggest", "test", "use", "create", "build", "make", "take", "give", "work",
+  "move", "change", "increase", "establish", "lead", "run", "serve", "start",
+  "turn", "play", "call", "carry", "cause", "place", "put", "set"
+)
+
+# Define passive words from Harvard IV dictionary  
+passive_words <- c(
+  "abate", "abdicate", "abhor", "abject", "abound", "absent", "absent-minded", 
+  "accept", "acceptance", "accustom", "ache", "acrimony", "adhere", "adjournment", 
+  "adjustment", "admire", "admissible", "admission", "admit", "adopt", "advance", 
+  "affliction", "afraid", "agonize", "agree", "ail", "aimless", "alibi", "allow", 
+  "aloof", "anguish", "anticipate", "anticipation", "anxiety", "anxious", 
+  "anxiousness", "apathetic", "apathy", "appeal", "appear", "appearance", 
+  "appreciate", "appreciation", "apprehensive", "approach", "are", "ashamed", 
+  "asleep", "assimilate", "associate", "assume", "assumption", "astray", "asunder", 
+  "atrophy", "attention", "attentive", "attest", "avail", "aversion", "avert", 
+  "avoid", "avoidance", "await", "aware", "awareness", "balk", "bane", "barren", 
+  "bashful", "be", "beat", "became", "become", "been", "befit", "befitting", 
+  "being", "belief", "believe", "believer", "belong", "bend", "benign", "bent", 
+  "bereavement", "bitter", "bitterness", "receive", "experience", "feel", "seem",
+  "remain", "stay", "wait", "rest", "sleep", "dream", "hope", "wish", "expect",
+  "suffer", "endure", "bear", "tolerate", "accept", "submit", "yield", "surrender",
+  "depend", "rely", "trust", "need", "require", "deserve", "merit", "earn"
+)
+
+# Create the active/passive dictionary for quanteda
+active_passive_dict <- dictionary(list(
+  active = active_words,
+  passive = passive_words
+))
+
+# Apply active/passive dictionary
+active_passive_scores <- dfm(tokens_lookup(toks_clean, dictionary = active_passive_dict))
+
+# Extract active/passive counts
+nber_abstracts_intros$active_words_abs <- as.numeric(active_passive_scores[, "active"])
+nber_abstracts_intros$passive_words_abs <- as.numeric(active_passive_scores[, "passive"])
+
+# Calculate active/passive sentiment ratio
+nber_abstracts_intros$active_sentiment_abs <- ifelse(
+  (nber_abstracts_intros$active_words_abs + nber_abstracts_intros$passive_words_abs) > 0,
+  (nber_abstracts_intros$active_words_abs - nber_abstracts_intros$passive_words_abs) / 
+    (nber_abstracts_intros$active_words_abs + nber_abstracts_intros$passive_words_abs),
+  0
+)
+
+
+overstated_words <- c(
+  "abominable", "above", "absolute", "absolutely", "absurd", "abundance", 
+  "abundant", "accentuate", "account", "accuracy", "accurate", "accurateness", 
+  "acknowledgement", "actively", "actual", "actually", "acute", "addiction", 
+  "admittedly", "after", "again", "aghast", "alarming", "alas", "alight", 
+  "all", "almost", "alone", "altogether", "always", "amaze", "amazing", 
+  "anarchy", "anti-social", "any", "anybody", "anyone", "anything", "anywhere", 
+  "appreciable", "appropriate", "apt", "arrest", "ascertain", "ascertainment", 
+  "assurance", "assure", "assuredly", "assuredness", "astonish", "astound", 
+  "astronomical", "atrocious", "audacious", "audacity", "authentic", "authenticity", 
+  "authoritative", "avid", "away", "awful", "awfully", "bad", "badly", "basic", 
+  "basically", "basis", "billion", "blatant", "blurt", "board", "brilliant", 
+  "brutality", "bulk", "capital", "captivation", "catastrophe", "celebrity", 
+  "censor", "censorship", "certain", "certainly", "certainty", "certification", 
+  "certify", "chaos", "chaotic", "chief", "chiefly", "chronic", "circle",
+  # Additional overstated/extreme words
+  "completely", "entirely", "extremely", "incredibly", "tremendously", "utterly", 
+  "vastly", "enormously", "immensely", "exceptionally", "remarkably", "extraordinarily",
+  "fantastic", "marvelous", "spectacular", "phenomenal", "outstanding", "magnificent",
+  "terrible", "horrible", "dreadful", "disaster", "crisis", "emergency", "urgent",
+  "critical", "essential", "vital", "crucial", "fundamental", "revolutionary",
+  "groundbreaking", "unprecedented", "unique", "perfect", "flawless", "ideal"
+)
+
+# Define understated words from Harvard IV dictionary (Undrst tag)
+understated_words <- c(
+  "about", "accident", "accidental", "accustom", "adequate", "allege", "aloof", 
+  "ambiguity", "ambiguous", "anomaly", "antipathy", "anyhow", "anyway", "apart", 
+  "apathetic", "apathy", "apparent", "apparently", "appear", "approximate", 
+  "approximately", "arbitrary", "aside", "autonomous", "awhile", "baffle", 
+  "bafflement", "barely", "beware", "bewilder", "bewilderment", "bit", "blur", 
+  "brief", "brusque", "bungle", "but", "calamity", "calmness", "care", "careful", 
+  "casual", "caution", "cautious", "chance", "changeable", "coincidence", 
+  "comparative", "comparatively", "conceivable", "confound", "confuse", "confusion", 
+  "contingent", "controversial", "cursory", "customary", "daze", "despite", 
+  "dilemma", "dim", "disbelief", "disconcerted", "dismay", "disputable", "doubt", 
+  "doubtful", "dubious", "equivocal", "event", "everyday", "evidently", "faint", 
+  "fair", "fairly", "falter", "feeble", "few", "fewer", "fewest", "fortunate", 
+  "gamble", "gingerly", "gradual", "hand", "handful", "hard", "hardly", "haziness", 
+  "heed", "hesitant", "hesitate",
+  # Additional understated/tentative words
+  "somewhat", "rather", "quite", "fairly", "relatively", "moderately", "partially", 
+  "slightly", "mildly", "reasonably", "arguably", "presumably", "conceivably", 
+  "potentially", "possibly", "probably", "likely", "perhaps", "maybe", "might",
+  "could", "would", "should", "seem", "appears", "tends", "suggests", "indicates",
+  "implies", "suppose", "assume", "believe", "think", "feel", "consider",
+  "temporary", "provisional", "preliminary", "initial", "modest", "limited",
+  "minor", "small", "little", "few", "some", "certain", "particular"
+)
+
+# Create the overstated/understated dictionary for quanteda
+overstated_understated_dict <- dictionary(list(
+  overstated = overstated_words,
+  understated = understated_words
+))
+
+# Apply overstated/understated dictionary
+overstated_understated_scores <- dfm(tokens_lookup(toks_clean, dictionary = overstated_understated_dict))
+
+# Extract overstated/understated counts
+nber_abstracts_intros$overstated_words_abs <- as.numeric(overstated_understated_scores[, "overstated"])
+nber_abstracts_intros$understated_words_abs <- as.numeric(overstated_understated_scores[, "understated"])
+
+# Calculate overstated/understated sentiment ratio
+nber_abstracts_intros$overstate_sentiment_abs <- ifelse(
+  (nber_abstracts_intros$overstated_words_abs + nber_abstracts_intros$understated_words_abs) > 0,
+  (nber_abstracts_intros$overstated_words_abs - nber_abstracts_intros$understated_words_abs) / 
+    (nber_abstracts_intros$overstated_words_abs + nber_abstracts_intros$understated_words_abs),
+  0
+)
+
+
+self_our_dict <- dictionary(list(
+  self = c(
+    # Self-referential words (first person singular)
+    "i", "i'm", "me", "mine", "my", "myself", "oneself"
+  ),
+  our = c(
+    # Collective/group referential words (first person plural)
+    "let's", "our", "ours", "ourselves", "us", "we"
+  )
+))
+
+# Apply Self/Our dictionary
+self_our_scores <- dfm(tokens_lookup(toks_clean, dictionary = self_our_dict))
+
+# Extract Self/Our counts
+nber_abstracts_intros$self_words_abs <- as.numeric(self_our_scores[, "self"])
+nber_abstracts_intros$our_words_abs <- as.numeric(self_our_scores[, "our"])
+
+nber_abstracts_intros$self_our_sentiment_abs <- ifelse(
+  (nber_abstracts_intros$self_words_abs + nber_abstracts_intros$our_words_abs) > 0,
+  (nber_abstracts_intros$self_words_abs - nber_abstracts_intros$our_words_abs) / 
+    (nber_abstracts_intros$self_words_abs + nber_abstracts_intros$our_words_abs),
+  0
+)
+
+# 2. Calculate text stats for Nber_Intro, 
+
+# Create corpus for introductions (do this once)
+corp_intro <- corpus(nber_abstracts_intros$Nber_Intro)
+docvars(corp_intro) <- nber_abstracts_intros[, !names(nber_abstracts_intros) %in% "Nber_Intro"]
+
+# Create clean tokens for introductions (do this once)
+toks_clean_intro <- tokens(corp_intro, 
+                           remove_punct = TRUE, 
+                           remove_numbers = TRUE, 
+                           remove_symbols = TRUE) %>%
+  tokens_tolower() %>%
+  tokens_remove(stopwords("english"))
+
+# BASIC TEXT STATISTICS FOR INTRODUCTIONS
+nber_abstracts_intros$n_sentences_Nber_Intro <- nsentence(corp_intro)
+nber_abstracts_intros$n_tokens_Nber_Intro <- ntoken(corp_intro)
+nber_abstracts_intros$n_characters_Nber_Intro <- nchar(nber_abstracts_intros$Nber_Intro)
+
+# Calculate number of types (unique words) for introductions
+nber_abstracts_intros$n_types_Nber_Intro <- sapply(nber_abstracts_intros$Nber_Intro, function(x) {
+  if (is.na(x) || x == "") return(0)
+  words <- unlist(strsplit(tolower(x), "\\s+"))
+  words <- gsub("[^a-z]", "", words)  # Remove punctuation
+  words <- words[words != ""]  # Remove empty strings
+  length(unique(words))
+})
+
+# Calculate TTR (Type-Token Ratio) for introductions
+nber_abstracts_intros$ttr_Nber_Intro <- ifelse(nber_abstracts_intros$n_tokens_Nber_Intro > 0, 
+                                               nber_abstracts_intros$n_types_Nber_Intro / nber_abstracts_intros$n_tokens_Nber_Intro, 
+                                               0)
+
+# ADDITIONAL TEXT FEATURES FOR INTRODUCTIONS
+# Average word length
+word_lengths_intro <- textstat_summary(corp_intro)
+nber_abstracts_intros$avg_word_length_intro <- word_lengths_intro$chars / word_lengths_intro$tokens
+
+# Proportion of long words (>6 characters)
+dfm_obj_intro <- dfm(toks_clean_intro)
+feat_lengths_intro <- nchar(featnames(dfm_obj_intro))
+long_words_intro <- featnames(dfm_obj_intro)[feat_lengths_intro > 6]
+long_word_counts_intro <- dfm_select(dfm_obj_intro, pattern = long_words_intro) %>% rowSums()
+nber_abstracts_intros$prop_long_words_intro <- long_word_counts_intro / nber_abstracts_intros$n_tokens_Nber_Intro
+
+# SYLLABLE ESTIMATION FUNCTION (same as before)
+estimate_syllables <- function(text) {
+  # Handle missing or empty text
+  if (is.na(text) || text == "") {
+    return(0)
+  }
+  
+  # Simple syllable estimation based on vowel groups
+  words <- unlist(strsplit(tolower(text), "\\s+"))
+  
+  # Remove empty strings from words
+  words <- words[words != ""]
+  
+  if (length(words) == 0) {
+    return(0)
+  }
+  
+  syl_count <- sapply(words, function(word) {
+    # Remove punctuation and count vowel groups
+    word <- gsub("[^a-z]", "", word)
+    
+    # Handle empty words after cleaning
+    if (nchar(word) == 0) {
+      0
+    } else {
+      vowels <- gregexpr("[aeiouy]+", word)[[1]]
+      
+      if (length(vowels) == 1 && vowels[1] == -1) {
+        1  # No vowels found, assume 1 syllable
+      } else {
+        syl <- length(vowels)
+        # Adjust for silent e
+        if (grepl("e$", word)) syl <- syl - 1
+        max(1, syl)
+      }
+    }
+  })
+  
+  return(sum(syl_count, na.rm = TRUE))
+}
+
+# Apply syllable estimation to introductions
+nber_abstracts_intros$n_syllables_intro <- sapply(nber_abstracts_intros$Nber_Intro, estimate_syllables)
+nber_abstracts_intros$avg_syllables_per_word_intro <- nber_abstracts_intros$n_syllables_intro / nber_abstracts_intros$n_tokens_Nber_Intro
+
+# READABILITY MEASURES FOR INTRODUCTIONS
+# Use the correct corpus (corp_intro) for all readability calculations
+nber_abstracts_intros$flesch_nber_intro <- textstat_readability(corp_intro, measure = "Flesch")$Flesch
+nber_abstracts_intros$flesch_kincaid_nber_intro <- textstat_readability(corp_intro, measure = "Flesch.Kincaid")$Flesch.Kincaid
+nber_abstracts_intros$fog_nber_intro <- textstat_readability(corp_intro, measure = "FOG")$FOG
+nber_abstracts_intros$smog_nber_intro <- textstat_readability(corp_intro, measure = "SMOG")$SMOG
+nber_abstracts_intros$dale_chall_nber_intro <- textstat_readability(corp_intro, measure = "Dale.Chall")$Dale.Chall
+nber_abstracts_intros$meanSentenceLength_nber_intro <- textstat_readability(corp_intro, measure = "meanSentenceLength")$meanSentenceLength
+nber_abstracts_intros$meanWordSyllables_nber_intro <- textstat_readability(corp_intro, measure = "meanWordSyllables")$meanWordSyllables
+nber_abstracts_intros$ari_nber_intro <- textstat_readability(corp_intro, measure = "ARI")$ARI
+nber_abstracts_intros$coleman_liau_nber_intro <- textstat_readability(corp_intro, measure = "Coleman.Liau")$Coleman.Liau
+
+# Create proper corpus and tokens for introductions
+corp_intro <- corpus(nber_abstracts_intros$Nber_Intro)
+docvars(corp_intro) <- nber_abstracts_intros[, !names(nber_abstracts_intros) %in% "Nber_Intro"]
+
+# Create clean tokens for INTRODUCTIONS
+toks_clean_intro <- tokens(corp_intro, 
+                           remove_punct = TRUE, 
+                           remove_numbers = TRUE, 
+                           remove_symbols = TRUE) %>%
+  tokens_tolower() %>%
+  tokens_remove(stopwords("english"))
+
+#  POSITIVE/NEGATIVE SENTIMENT FOR INTRODUCTIONS
+# Apply Harvard IV dictionary to INTRODUCTION tokens
+harvard_scores_intro <- dfm(tokens_lookup(toks_clean_intro, dictionary = harvard_iv_dict))
+
+# Extract Harvard IV positive/negative counts for INTRODUCTIONS
+nber_abstracts_intros$pos_words_intro <- as.numeric(harvard_scores_intro[, "positive"])
+nber_abstracts_intros$neg_words_intro <- as.numeric(harvard_scores_intro[, "negative"])
+
+# Calculate Harvard IV sentiment ratio for INTRODUCTIONS
+nber_abstracts_intros$pos_sentiment_intro <- ifelse(
+  (nber_abstracts_intros$pos_words_intro + nber_abstracts_intros$neg_words_intro) > 0,
+  (nber_abstracts_intros$pos_words_intro - nber_abstracts_intros$neg_words_intro) / 
+    (nber_abstracts_intros$pos_words_intro + nber_abstracts_intros$neg_words_intro),
+  0
+)
+
+# 2. CERTAINTY/TENTATIVENESS FOR INTRODUCTIONS
+# Apply certainty dictionary to INTRODUCTION tokens
+certainty_scores_intro <- dfm(tokens_lookup(toks_clean_intro, dictionary = certainty_dict))
+
+# Extract certainty/tentativeness counts for INTRODUCTIONS
+nber_abstracts_intros$certainty_words_intro <- as.numeric(certainty_scores_intro[, "certainty"])
+nber_abstracts_intros$tentative_words_intro <- as.numeric(certainty_scores_intro[, "tentativeness"])
+
+# Calculate certainty sentiment ratio for INTRODUCTIONS
+nber_abstracts_intros$cert_sentiment_intro <- ifelse(
+  (nber_abstracts_intros$certainty_words_intro + nber_abstracts_intros$tentative_words_intro) > 0,
+  (nber_abstracts_intros$certainty_words_intro - nber_abstracts_intros$tentative_words_intro) / 
+    (nber_abstracts_intros$certainty_words_intro + nber_abstracts_intros$tentative_words_intro),
+  0
+)
+
+# 3. TEMPORAL SENTIMENT FOR INTRODUCTIONS
+# Apply temporal dictionary to INTRODUCTION tokens
+temporal_scores_intro <- dfm(tokens_lookup(toks_clean_intro, dictionary = temporal_dict))
+
+# Extract temporal counts for INTRODUCTIONS
+nber_abstracts_intros$contemporary_words_intro <- as.numeric(temporal_scores_intro[, "contemporary"])
+nber_abstracts_intros$past_words_intro <- as.numeric(temporal_scores_intro[, "past"])
+
+# Calculate temporal sentiment ratio for INTRODUCTIONS
+nber_abstracts_intros$temp_sentiment_intro <- ifelse(
+  (nber_abstracts_intros$contemporary_words_intro + nber_abstracts_intros$past_words_intro) > 0,
+  (nber_abstracts_intros$contemporary_words_intro - nber_abstracts_intros$past_words_intro) / 
+    (nber_abstracts_intros$contemporary_words_intro + nber_abstracts_intros$past_words_intro),
+  0
+)
+
+# 4. ACTIVE/PASSIVE SENTIMENT FOR INTRODUCTIONS
+# Apply active/passive dictionary to INTRODUCTION tokens
+active_passive_scores_intro <- dfm(tokens_lookup(toks_clean_intro, dictionary = active_passive_dict))
+
+# Extract active/passive counts for INTRODUCTIONS
+nber_abstracts_intros$active_words_intro <- as.numeric(active_passive_scores_intro[, "active"])
+nber_abstracts_intros$passive_words_intro <- as.numeric(active_passive_scores_intro[, "passive"])
+
+# Calculate active sentiment ratio for INTRODUCTIONS
+nber_abstracts_intros$active_sentiment_intro <- ifelse(
+  (nber_abstracts_intros$active_words_intro + nber_abstracts_intros$passive_words_intro) > 0,
+  (nber_abstracts_intros$active_words_intro - nber_abstracts_intros$passive_words_intro) / 
+    (nber_abstracts_intros$active_words_intro + nber_abstracts_intros$passive_words_intro),
+  0
+)
+
+# 5. OVERSTATEMENT SENTIMENT FOR INTRODUCTIONS
+# Apply overstatement dictionary to INTRODUCTION tokens
+overstated_understated_scores_intro <- dfm(tokens_lookup(toks_clean_intro, dictionary = overstated_understated_dict))
+
+# Extract overstatement counts for INTRODUCTIONS
+nber_abstracts_intros$overstated_words_intro <- as.numeric(overstated_understated_scores_intro[, "overstated"])
+nber_abstracts_intros$understated_words_intro <- as.numeric(overstated_understated_scores_intro[, "understated"])
+
+# Calculate overstatement sentiment ratio for INTRODUCTIONS
+nber_abstracts_intros$overstate_sentiment_intro <- ifelse(
+  (nber_abstracts_intros$overstated_words_intro + nber_abstracts_intros$understated_words_intro) > 0,
+  (nber_abstracts_intros$overstated_words_intro - nber_abstracts_intros$understated_words_intro) / 
+    (nber_abstracts_intros$overstated_words_intro + nber_abstracts_intros$understated_words_intro),
+  0
+)
+
+# 6. SELF/OUR SENTIMENT FOR INTRODUCTIONS
+# Apply self/our dictionary to INTRODUCTION tokens
+self_our_scores_intro <- dfm(tokens_lookup(toks_clean_intro, dictionary = self_our_dict))
+
+# Extract self/our counts for INTRODUCTIONS
+nber_abstracts_intros$self_words_intro <- as.numeric(self_our_scores_intro[, "self"])
+nber_abstracts_intros$our_words_intro <- as.numeric(self_our_scores_intro[, "our"])
+
+# Calculate self/our sentiment ratio for INTRODUCTIONS
+nber_abstracts_intros$self_our_sentiment_intro <- ifelse(
+  (nber_abstracts_intros$self_words_intro + nber_abstracts_intros$our_words_intro) > 0,
+  (nber_abstracts_intros$self_words_intro - nber_abstracts_intros$our_words_intro) / 
+    (nber_abstracts_intros$self_words_intro + nber_abstracts_intros$our_words_intro),
+  0
+)
+
+
+
+
+#===============================================================================
+# t-test on the difference of means of stylisitc charactersitics of abstracts and the first paragraph of an articles introduciont
+#===============================================================================
+nber_abstracts_intros<-read_csv("nber_abstracts_intros")
+library(dplyr)
+library(knitr)
+library(kableExtra)
+
+# Define variable pairs for comparison
+abstract_vars <- c(
+  # Readability measures
+  "flesch_nber_abstract", "flesch_kincaid_nber_abstract", "fog_nber_abstract", 
+  "smog_nber_abstract", "dale_chall_nber_abstract", "meanSentenceLength_nber_abstract",
+  "meanWordSyllables_nber_abstract", "ari_nber_abstract", "coleman_liau_nber_abstract",
+  
+  # Textual features
+  "n_sentences_abs", "n_tokens_abs", "n_characters_abs", "n_types_abs", "ttr_abs",
+  "avg_word_length_abs", "prop_long_words_abs", "n_syllables_abs", "avg_syllables_per_word_abs",
+  
+  # Sentiment scores
+  "pos_sentiment_abs", "cert_sentiment_abs", "temp_sentiment_abs", 
+  "active_sentiment_abs", "overstate_sentiment_abs", "self_our_sentiment_abs"
+)
+
+intro_vars <- c(
+  # Readability measures
+  "flesch_nber_intro", "flesch_kincaid_nber_intro", "fog_nber_intro", 
+  "smog_nber_intro", "dale_chall_nber_intro", "meanSentenceLength_nber_intro",
+  "meanWordSyllables_nber_intro", "ari_nber_intro", "coleman_liau_nber_intro",
+  
+  # Textual features
+  "n_sentences_Nber_Intro", "n_tokens_Nber_Intro", "n_characters_Nber_Intro", 
+  "n_types_Nber_Intro", "ttr_intro",
+  "avg_word_length_intro", "prop_long_words_intro", "n_syllables_intro", "avg_syllables_per_word_intro",
+  
+  # Sentiment measures
+  "pos_sentiment_intro", "cert_sentiment_intro", "temp_sentiment_intro", 
+  "active_sentiment_intro", "overstate_sentiment_intro", "self_our_sentiment_intro"
+)
+
+# Create row labels - FIXED TO MATCH 24 VARIABLES
+row_labels <- c(
+  # Readability measures (9 variables)
+  "Flesch Reading Ease", "Flesch-Kincaid Grade Level", "FOG Index", 
+  "SMOG Index", "Dale-Chall Readability", "Mean Sentence Length",
+  "Mean Word Syllables", "ARI Index", "Coleman-Liau Index",
+  
+  # Textual features (9 variables)
+  "Number of Sentences", "Number of Tokens", "Number of Characters", 
+  "Number of Types", "Type-Token Ratio", "Average Word Length",
+  "Proportion Long Words", "Number of Syllables", "Average Syllables per Word",
+  
+  # Sentiment scores (6 variables)
+  "Positive Sentiment", "Certainty Sentiment", "Temporal Sentiment", 
+  "Active Sentiment", "Overstatement Sentiment", "Self/Our Sentiment"
+)
+
+# Verify lengths match
+cat("Abstract vars length:", length(abstract_vars), "\n")
+cat("Intro vars length:", length(intro_vars), "\n")
+cat("Row labels length:", length(row_labels), "\n")
+
+# Function to calculate mean and std dev with formatting
+calc_mean_sd <- function(x) {
+  x <- x[!is.na(x)]  # Remove NA values
+  if(length(x) == 0) return("NA")
+  mean_val <- mean(x)
+  sd_val <- sd(x)
+  return(sprintf("%.3f (%.3f)", mean_val, sd_val))
+}
+
+# Function to perform t-test and format results
+perform_ttest <- function(abs_var, intro_var, data) {
+  abs_data <- data[[abs_var]]
+  intro_data <- data[[intro_var]]
+  
+  # Check if variables exist
+  if(is.null(abs_data) || is.null(intro_data)) {
+    return("Variable not found")
+  }
+  
+  # Remove rows where either variable is NA
+  complete_cases <- complete.cases(abs_data, intro_data)
+  abs_clean <- abs_data[complete_cases]
+  intro_clean <- intro_data[complete_cases]
+  
+  if(length(abs_clean) == 0 || length(intro_clean) == 0) {
+    return("No valid data")
+  }
+  
+  # Calculate difference (Abstract - Introduction)
+  diff_mean <- mean(abs_clean - intro_clean)
+  
+  # Perform paired t-test
+  tryCatch({
+    t_test <- t.test(abs_clean, intro_clean, paired = TRUE)
+    p_value <- t_test$p.value
+    
+    # Format significance stars
+    stars <- ""
+    if(p_value < 0.001) stars <- "***"
+    else if(p_value < 0.01) stars <- "**"
+    else if(p_value < 0.05) stars <- "*"
+    else if(p_value < 0.10) stars <- "."
+    
+    return(sprintf("%.3f%s", diff_mean, stars))
+  }, error = function(e) {
+    return(sprintf("%.3f (error)", diff_mean))
+  })
+}
+
+# Create the comparison table
+comparison_results <- data.frame(
+  Variable = row_labels,
+  `NBER Abstract` = character(length(abstract_vars)),
+  `NBER Introduction` = character(length(intro_vars)),
+  `Difference (Abs - Intro)` = character(length(abstract_vars)),
+  stringsAsFactors = FALSE
+)
+
+# Fill in the results
+for(i in 1:length(abstract_vars)) {
+  # Calculate means and standard deviations
+  comparison_results$NBER.Abstract[i] <- calc_mean_sd(nber_abstracts_intros[[abstract_vars[i]]])
+  comparison_results$NBER.Introduction[i] <- calc_mean_sd(nber_abstracts_intros[[intro_vars[i]]])
+  
+  # Calculate difference and t-test
+  comparison_results$Difference..Abs...Intro.[i] <- perform_ttest(
+    abstract_vars[i], intro_vars[i], nber_abstracts_intros
+  )
+}
+
+# Also create a nicely formatted kable table if kableExtra is available
+if(require(kableExtra, quietly = TRUE)) {
+  formatted_table <- comparison_results %>%
+    kable(col.names = c("Variable", "NBER Abstract", "NBER Introduction", "Difference (Abs - Intro)"),
+          caption = "Comparison of NBER Abstracts and Introductions",
+          format = "html") %>%
+    kable_styling(bootstrap_options = c("striped", "hover", "condensed")) %>%
+    pack_rows("Readability Measures", 1, 9) %>%
+    pack_rows("Textual Features", 10, 18) %>%
+    pack_rows("Sentiment Measures", 19, 24) %>%
+    footnote(general = "Format: Mean (Standard Deviation). Significance: *** p<0.001, ** p<0.01, * p<0.05, . p<0.10")
+  
+  print(formatted_table)
+}
+
+
+# Effect Size Analysis: Cohen's d for Abstract vs Introduction Differences
+calculate_cohens_d_paired <- function(x1, x2) {
+  # Remove cases where either variable is NA
+  complete_cases <- complete.cases(x1, x2)
+  x1_clean <- x1[complete_cases]
+  x2_clean <- x2[complete_cases]
+  
+  if(length(x1_clean) == 0 || length(x2_clean) == 0) {
+    return(NA)
+  }
+  
+  # Calculate difference
+  diff <- x1_clean - x2_clean
+  
+  # For paired data, Cohen's d = mean difference / SD of differences
+  cohens_d <- mean(diff) / sd(diff)
+  
+  return(cohens_d)
+}
+# Interpretation: |d| < 0.2 = negligible, 0.2-0.5 = small, 0.5-0.8 = medium, > 0.8 = large\n\n")
+effect_results <- data.frame(
+  Variable = row_labels,
+  Cohens_d = numeric(length(abstract_vars)),
+  Interpretation = character(length(abstract_vars)),
+  stringsAsFactors = FALSE
+)
+for(i in 1:length(abstract_vars)) {
+  abs_data <- nber_abstracts_intros[[abstract_vars[i]]]
+  intro_data <- nber_abstracts_intros[[intro_vars[i]]]
+  
+  if(!is.null(abs_data) && !is.null(intro_data)) {
+    cohens_d <- calculate_cohens_d_paired(abs_data, intro_data)
+    
+    if(!is.na(cohens_d)) {
+      effect_results$Cohens_d[i] <- cohens_d
+      
+      # Interpret effect size
+      abs_d <- abs(cohens_d)
+      if(abs_d < 0.2) {
+        effect_results$Interpretation[i] <- "Negligible"
+      } else if(abs_d < 0.5) {
+        effect_results$Interpretation[i] <- "Small"
+      } else if(abs_d < 0.8) {
+        effect_results$Interpretation[i] <- "Medium"
+      } else {
+        effect_results$Interpretation[i] <- "Large"
+      }
+      
+      # Print results
+      cat(sprintf("%-35s: %6.3f (%s)\n", 
+                  row_labels[i], cohens_d, effect_results$Interpretation[i]))
+    } else {
+      effect_results$Cohens_d[i] <- NA
+      effect_results$Interpretation[i] <- "Unable to calculate"
+      cat(sprintf("%-35s: %6s (%s)\n", 
+                  row_labels[i], "NA", "Unable to calculate"))
+    }
+  } else {
+    effect_results$Cohens_d[i] <- NA
+    effect_results$Interpretation[i] <- "Variable not found"
+    cat(sprintf("%-35s: %6s (%s)\n", 
+                row_labels[i], "NA", "Variable not found"))
+  }
+}
+combined_results <- merge(comparison_results, effect_results, by = "Variable")
+
+
